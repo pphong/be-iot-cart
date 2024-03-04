@@ -305,7 +305,6 @@ app.post("/billing", async (req, res) => {
 
 const checkIfExists = async (input) => {
   const { code, cart_id, product_id, quantity } = input;
-  console.log(code, cart_id, product_id);
   const rows = await new Promise((resolve, reject) => {
     db.all(
       `
