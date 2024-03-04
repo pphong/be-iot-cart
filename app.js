@@ -217,7 +217,7 @@ app.get("/billing/:id", (req, res) => {
       SELECT billing.code, billing.id, products.code as products_code, products.id as products_id, products.name, billing.quantity, products.price
       FROM billing
       JOIN products ON billing.product_id = products.id
-      WHERE billing.cart_id = ?
+      WHERE billing.cart_id = ? AND billing.is_current = 1
     `,
     [cart_id],
     (err, rows) => {
@@ -401,6 +401,25 @@ app.delete("/billing/:id", (req, res) => {
     }
     res.json({
       message: "Billing entry deleted successfully",
+      changes: this.changes,
+    });
+  });
+});
+
+// Complete payment request
+app.patch("/billing/:code", (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  const code = req.params.code;
+  db.run(
+    "UPDATE billing SET is_current = 0 WHERE code = ?",
+    [code], 
+    function (err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({
+      message: "Billing payment success!",
       changes: this.changes,
     });
   });
