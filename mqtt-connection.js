@@ -53,7 +53,14 @@ client.on("message", async (topic, payload) => {
   if (!billCode) {
     billCode = uuid.v4();
   }
-  const updateBilling = await updateCart(billCode, cartId, product_id);
+  const existsItem = await checkIfExistsItem(billCode, product_id);
+  let updateBilling;
+  if (existsItem) {
+    updateBilling = await updateCart(existsItem.quantity + 1, billCode, cartId, product_id);
+  } else {
+    updateBilling = await insertCart(billCode, cartId, product_id);
+  }
+
   if (updateBilling == 200) {
     const total = await getTotal(cartId);
     client.publish(topic + "/total", `Total payment: ${total}`);
@@ -94,11 +101,27 @@ const getBillCode = async (cartId) => {
   });
 };
 
-const updateCart = async (billCode, cart_id, product_id) => {
+const insertCart = async (billCode, cart_id, product_id) => {
   return new Promise((resolve) => {
     db.run(
       "INSERT INTO billing (code, cart_id, product_id, quantity, is_current) VALUES (?, ?, ?, ?, 1)",
       [billCode, cart_id, product_id, 1],
+      function (err) {
+        if (err) {
+          console.error(err);
+          return;
+        }
+        resolve(200);
+      }
+    );
+  });
+};
+
+const updateCart = async (quantity, billCode, cart_id, product_id) => {
+  return new Promise((resolve) => {
+    db.run(
+      "UPDATE billing SET quantity = ? WHERE code = ? AND cart_id = ? AND product_id = ? AND is_current = 1",
+      [quantity, billCode, cart_id, product_id],
       function (err) {
         if (err) {
           console.error(err);
@@ -155,6 +178,24 @@ const getTotal = async (cartId) => {
           });
         }
         resolve(totalPayment);
+      }
+    );
+  });
+};
+
+const checkIfExistsItem = async (billCode, product_id) => {
+  return new Promise((resolve) => {
+    db.all(
+      "SELECT * FROM billing WHERE code = ? AND product_id = ?",
+      [billCode, product_id],
+      function (err, rows) {
+        if (err) {
+          console.error(err);
+          return;
+        }
+        if (rows.length > 0) {
+          resolve(rows[0]);
+        }
       }
     );
   });
