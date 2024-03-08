@@ -5,8 +5,8 @@ const uuid = require("uuid");
 const brokerOptions = {
   clientId: "iot-cart-apis", // Update with your desired client ID
   clean: true,
-  username: "iot-cart-client", // Update with your MQTT broker username
-  password: "cart@`12", // Update with your MQTT broker password
+  username: "tinker1", // Update with your MQTT broker username
+  password: "1234", // Update with your MQTT broker password
 };
 
 const sqlite3 = require("sqlite3").verbose();
@@ -29,8 +29,8 @@ client.on("connect", () => {
       return;
     }
     rows.forEach((row) => {
-      console.log(`+ Subscribe topic: ${row.code}`);
-      client.subscribe(`${row.code}`);
+      console.log(`+ Subscribe topic: ${row.code}/barcode`);
+      client.subscribe(`${row.code}/barcode`);
       console.log(`+ Subscribe topic: ${row.code}/total`);
       client.subscribe(`${row.code}/total`);
     });
@@ -45,25 +45,32 @@ client.on("message", async (topic, payload) => {
   //   get product id
   const product_id = await getProductIdByCode(recCode);
   //   get current bill of cart
-  const cartCode = topic;
+  const cartCode = topic.split("/")[0];
+
   const cartId = await getCartId(cartCode);
-  console.log(cartId);
+
   let billCode = await getBillCode(cartId);
   console.log(billCode);
   if (!billCode) {
     billCode = uuid.v4();
   }
   const existsItem = await checkIfExistsItem(billCode, product_id);
+
   let updateBilling;
   if (existsItem) {
-    updateBilling = await updateCart(existsItem.quantity + 1, billCode, cartId, product_id);
+    updateBilling = await updateCart(
+      existsItem.quantity + 1,
+      billCode,
+      cartId,
+      product_id
+    );
   } else {
     updateBilling = await insertCart(billCode, cartId, product_id);
   }
 
   if (updateBilling == 200) {
     const total = await getTotal(cartId);
-    client.publish(topic + "/total", `Total payment: ${total}`);
+    client.publish(topic.split("/")[0] + "/total", `Total payment: ${total}`);
   }
 });
 
@@ -195,7 +202,10 @@ const checkIfExistsItem = async (billCode, product_id) => {
         }
         if (rows.length > 0) {
           resolve(rows[0]);
+        } else {
+          resolve(null);
         }
+        return;
       }
     );
   });

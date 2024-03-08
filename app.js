@@ -270,7 +270,7 @@ app.post("/billing", async (req, res) => {
   }
   const checkBeforeInsert = await checkIfExists(inputData);
   if (checkBeforeInsert == -1) {
-    db.run(
+    await db.run(
       "INSERT INTO billing (code, cart_id, product_id, quantity, is_current) VALUES (?, ?, ?, ?, ?)",
       [code, cart_id, product_id, quantity, is_current],
       function (err) {
@@ -285,10 +285,10 @@ app.post("/billing", async (req, res) => {
       }
     );
   } else {
-    quantity += checkBeforeInsert;
-    db.run(
+    const sumQuantity = Number(quantity) + Number(checkBeforeInsert);
+    await db.run(
       "UPDATE billing SET quantity = ? WHERE code = ? AND cart_id = ? AND product_id = ? AND is_current = 1",
-      [quantity, code, cart_id, product_id],
+      [sumQuantity, code, cart_id, product_id],
       function (err) {
         if (err) {
           res.status(500).json({ error: err.message });
@@ -301,6 +301,9 @@ app.post("/billing", async (req, res) => {
       }
     );
   }
+
+  const { billingDetails, cart_code, totalPayment } = await getBillTotal(code);
+  client.publish(`${cart_code}/total`, `Total payment: ${totalPayment}`);
 });
 
 const checkIfExists = async (input) => {
@@ -370,11 +373,10 @@ const getProductIdByCode = async (req) => {
 };
 
 // Update a billing entry
-app.put("/billing/:id", (req, res) => {
+app.put("/billing/:id", async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
-  const { code, cart_id, product_id, quantity, is_current } = req.body;
-  const id = req.params.id;
-  db.run(
+  const { code, cart_id, product_id, quantity } = req.body;
+  await db.run(
     "UPDATE billing SET quantity = ? WHERE code = ? AND cart_id = ? AND product_id = ? AND is_current = 1",
     [quantity, code, cart_id, product_id],
     function (err) {
@@ -382,28 +384,37 @@ app.put("/billing/:id", (req, res) => {
         res.status(500).json({ error: err.message });
         return;
       }
+
       res.json({
         message: "Billing entry updated successfully",
         changes: this.changes,
       });
     }
   );
+
+  const { billingDetails, cart_code, totalPayment } = await getBillTotal(code);
+  client.publish(`${cart_code}/total`, `Total payment: ${totalPayment}`);
 });
 
 // Delete a billing entry
-app.delete("/billing/:id", (req, res) => {
+app.delete("/billing/:id", async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   const id = req.params.id;
-  db.run("DELETE FROM billing WHERE id = ?", [id], function (err) {
+  db.run("UPDATE billing SET is_current = 0 WHERE id = ?", [id], async function (err) {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
     }
+
     res.json({
       message: "Billing entry deleted successfully",
       changes: this.changes,
     });
   });
+
+  const { billingDetails, cart_code, totalPayment } = await getBillTotal(id, true);
+
+  client.publish(`${cart_code}/total`, `Total payment: ${totalPayment}`);
 });
 
 // Complete payment request
@@ -412,18 +423,136 @@ app.patch("/billing/:code", (req, res) => {
   const code = req.params.code;
   db.run(
     "UPDATE billing SET is_current = 0 WHERE code = ?",
-    [code], 
+    [code],
     function (err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({
+        message: "Billing payment success!",
+        changes: this.changes,
+      });
+    }
+  );
+});
+
+const mqtt = require("mqtt");
+
+// MQTT broker connection options
+const brokerOptions = {
+  clientId: "iot-cart-apis-1", // Update with your desired client ID
+  clean: true,
+  username: "tinker1", // Update with your MQTT broker username
+  password: "1234", // Update with your MQTT broker password
+};
+
+// Connect to MQTT broker
+const client = mqtt.connect("mqtt://localhost:1883", brokerOptions); // Update with your MQTT broker URL
+
+client.on("connect", () => {
+  console.log("Connected");
+  db.all("SELECT * FROM cart", (err, rows) => {
     if (err) {
-      res.status(500).json({ error: err.message });
+      console.error(err);
       return;
     }
-    res.json({
-      message: "Billing payment success!",
-      changes: this.changes,
+    rows.forEach((row) => {
+      console.log(`+ Subscribe topic: ${row.code}/barcode`);
+      client.subscribe(`${row.code}/barcode`);
+      console.log(`+ Subscribe topic: ${row.code}/total`);
+      client.subscribe(`${row.code}/total`);
     });
   });
 });
+
+app.post("/billing-total", async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  const cart_id = req.body.cart_id;
+
+  const { billingDetails, cart_code, totalPayment } = await getCartTotal(
+    cart_id
+  );
+  res.json({ billingDetails, totalPayment });
+  client.publish(`${cart_code}/total`, `Your purchase has been successful - Total payment: ${totalPayment}`);
+});
+
+const getCartTotal = async (cart_id) => {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `
+        SELECT billing.code, billing.id, products.code as products_code, products.id as products_id, products.name, billing.quantity, products.price, cart.code as cart_code
+        FROM billing
+        JOIN products ON billing.product_id = products.id
+        JOIN cart ON billing.cart_id = cart.id
+        WHERE billing.cart_id = ? AND billing.is_current = 1
+      `,
+      [cart_id],
+      (err, rows) => {
+        if (err) {
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
+        let totalPayment = 0;
+        rows.forEach((element) => {
+          totalPayment += element.quantity * element.price;
+        });
+        const cart_code = rows[0]?.cart_code;
+        resolve({ billingDetails: rows, cart_code, totalPayment });
+      }
+    );
+  });
+};
+
+const getBillTotal = async (billing_code, getBillingCode = false) => {
+  let billCode;
+  if (getBillingCode) {
+    billCode = await (() => {
+      return new Promise((resolve, reject) => {
+        db.all(
+          `
+            SELECT * FROM billing WHERE id = ?
+          `,
+          [billing_code],
+          (err, rows) => {
+            if (rows.length > 0) {
+              resolve(rows[0].code);
+            } else {
+              resolve(null);
+            }
+            return;
+          }
+        );
+      })
+    })();
+  }
+  return new Promise((resolve, reject) => {
+    db.all(
+      `
+        SELECT billing.code, billing.id, products.code as products_code, products.id as products_id, products.name, billing.quantity, products.price, cart.code as cart_code
+        FROM billing
+        JOIN products ON billing.product_id = products.id
+        JOIN cart ON billing.cart_id = cart.id
+        WHERE billing.code = ? AND billing.is_current = 1
+      `,
+      [billCode ?? billing_code],
+      (err, rows) => {
+        if (err) {
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
+        let totalPayment = 0;
+        rows.forEach((element) => {
+          totalPayment += element.quantity * element.price;
+        });
+        const cart_code = rows[0]?.cart_code;
+        resolve({ billingDetails: rows, cart_code, totalPayment });
+      }
+    );
+  });
+};
 
 app.use(cors()); // Add this line
 app.use(bodyParser.json());
