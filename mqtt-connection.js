@@ -83,6 +83,8 @@ const getCartId = async (code) => {
       }
       if (rows.length > 0) {
         resolve(rows[0].id);
+      } else {
+        resolve(null);
       }
       return;
     });
@@ -101,6 +103,8 @@ const getBillCode = async (cartId) => {
         }
         if (rows.length > 0) {
           resolve(rows[0].code);
+        } else {
+          resolve(null);
         }
         return;
       }
@@ -119,6 +123,7 @@ const insertCart = async (billCode, cart_id, product_id) => {
           return;
         }
         resolve(200);
+        return;
       }
     );
   });
@@ -135,6 +140,7 @@ const updateCart = async (quantity, billCode, cart_id, product_id) => {
           return;
         }
         resolve(200);
+        return;
       }
     );
   });
@@ -156,6 +162,8 @@ const getProductIdByCode = async (product_code) => {
         }
         if (rows.length > 0) {
           resolve(rows[0].id);
+        } else {
+          resolve(null);
         }
         return;
       }
@@ -185,6 +193,7 @@ const getTotal = async (cartId) => {
           });
         }
         resolve(totalPayment);
+        return;
       }
     );
   });
