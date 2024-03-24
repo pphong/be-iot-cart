@@ -1,7 +1,14 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const sqlite3 = require("sqlite3").verbose();
-const cors = require("cors");
+// const express = require("express");
+import express from 'express';
+// const bodyParser = require("body-parser");
+import bodyParser from "body-parser";
+// const sqlite3 = require("sqlite3").verbose();
+import sqlite3 from "sqlite3";
+// const cors = require("cors");
+import cors from "cors";
+
+import mqtt from "mqtt";
+
 
 const app = express();
 const PORT = 3000;
@@ -437,7 +444,7 @@ app.patch("/billing/:code", (req, res) => {
   );
 });
 
-const mqtt = require("mqtt");
+// const mqtt = require("mqtt");
 
 // MQTT broker connection options
 const brokerOptions = {

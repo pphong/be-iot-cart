@@ -2,19 +2,23 @@
 import mqtt from "mqtt";
 // MQTT broker connection options
 const brokerOptions = {
-  clientId: "iot-cart-apis-2", // Update with your desired client ID
+  clientId: "tinker", // Update with your desired client ID
   clean: true,
-  username: "iot-cart-client", // Update with your MQTT broker username
-  password: "cart@`12", // Update with your MQTT broker password
+  username: "1976d606-b12c-4ae6-bf09-e7af5ab46c5d", // Update with your MQTT broker username
+  password: "1976d606-b12c-4ae6-bf09-e7af5ab46c5d", // Update with your MQTT broker password
 };
 
 // Connect to MQTT broker
-const client = mqtt.connect("mqtt://localhost:1883", brokerOptions); // Update with your MQTT broker URL
+const client = mqtt.connect("mqtt://mqtt1.eoh.io:1883", brokerOptions); // Update with your MQTT broker URL
 
 client.on("connect", () => {
   console.log("Connected");
   main();
 });
+
+client.on("error", (error) => {
+    console.error(error);
+})
 
 client.on("message", (topic, payload) => {
   const buff = new Buffer.from(payload);
@@ -48,3 +52,11 @@ async function main() {
     console.log("----------------");
   }
 }
+
+/**
+ * user auth-token
+ * pass auth-token
+ * Call back ERA with topic /eoh/chip/<auth-token>/
+ * 
+ * update widget value by trigger config/<widget-id>/value
+ */

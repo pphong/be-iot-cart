@@ -1,15 +1,22 @@
-const mqtt = require("mqtt");
-const uuid = require("uuid");
+// const mqtt = require("mqtt");
+// const uuid = require("uuid");
+
+import mqtt from "mqtt";
+import * as uuid from "uuid";
 
 // MQTT broker connection options
 const brokerOptions = {
   clientId: "iot-cart-apis", // Update with your desired client ID
   clean: true,
-  username: "tinker1", // Update with your MQTT broker username
-  password: "1234", // Update with your MQTT broker password
+  // username: "tinker1", // Update with your MQTT broker username
+  // password: "1234", // Update with your MQTT broker password
+  username: "iot-cart-client", // Update with your MQTT broker username
+  password: "cart@`12", // Update with your MQTT broker password
 };
 
-const sqlite3 = require("sqlite3").verbose();
+// const sqlite3 = require("sqlite3").verbose();
+import sqlite3 from "sqlite3";
+
 const db = new sqlite3.Database("./database.db", (err) => {
   if (err) {
     console.error(err.message);
@@ -37,6 +44,16 @@ client.on("connect", () => {
   });
 });
 
+import { io } from './socket-io.js';
+let socketIo;
+io.on("connection", (socket) => {
+  console.log("a user connected");
+  socket.on("disconnect", () => {
+    console.log("user disconnected");
+  });
+  socketIo = socket;
+});
+
 client.on("message", async (topic, payload) => {
   const buff = new Buffer.from(payload);
   console.log({ topic, payload, msg: buff.toString() });
@@ -44,6 +61,13 @@ client.on("message", async (topic, payload) => {
   const recCode = buff.toString();
   //   get product id
   const product_id = await getProductIdByCode(recCode);
+
+  const action = topic.split("/")[1];
+
+  if (action != "barcode") {
+    return;
+  }
+
   //   get current bill of cart
   const cartCode = topic.split("/")[0];
 
@@ -69,8 +93,19 @@ client.on("message", async (topic, payload) => {
   }
 
   if (updateBilling == 200) {
-    const total = await getTotal(cartId);
-    client.publish(topic.split("/")[0] + "/total", `Total payment: ${total}`);
+    const totalProducts = await getTotalProducts(cartId);
+    client.publish(
+      topic.split("/")[0] + "/total",
+      `Total payment: ${totalProducts.totalPayment}`
+    );
+
+    const data = {
+      ... totalProducts,
+      msg: "update cart",
+      code: cartCode
+    };
+
+    socketIo.send(data);
   }
 });
 
@@ -171,7 +206,7 @@ const getProductIdByCode = async (product_code) => {
   });
 };
 
-const getTotal = async (cartId) => {
+const getTotalProducts = async (cartId) => {
   return new Promise((resolve, reject) => {
     db.all(
       `
@@ -192,7 +227,7 @@ const getTotal = async (cartId) => {
             totalPayment += element.quantity * element.price;
           });
         }
-        resolve(totalPayment);
+        resolve({ billingDetails: rows, totalPayment });
         return;
       }
     );
