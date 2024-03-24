@@ -15,6 +15,7 @@ import bcrypt from "bcrypt";
 const app = express();
 const PORT = 3000;
 
+app.use(cors()); // Add this line
 app.use(bodyParser.json());
 
 // Connect to SQLite database
@@ -97,7 +98,6 @@ const verifyToken = (req, res, next) => {
 
 // Get all products
 app.get("/products", verifyToken, (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   db.all("SELECT * FROM products", (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
@@ -109,7 +109,6 @@ app.get("/products", verifyToken, (req, res) => {
 
 // Add a new product
 app.post("/products", verifyToken, (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const { code, name, category, quantity, price } = req.body;
   db.run(
     "INSERT INTO products (code, name, category, quantity, price) VALUES (?, ?, ?, ?, ?)",
@@ -126,7 +125,6 @@ app.post("/products", verifyToken, (req, res) => {
 
 // Update a product
 app.put("/products/:id", verifyToken, (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const { code, name, category, quantity, price } = req.body;
   const id = req.params.id;
   db.run(
@@ -147,7 +145,6 @@ app.put("/products/:id", verifyToken, (req, res) => {
 
 // Delete a product
 app.delete("/products/:id", verifyToken, (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const id = req.params.id;
   db.run("DELETE FROM products WHERE id = ?", [id], function (err) {
     if (err) {
@@ -163,7 +160,6 @@ app.delete("/products/:id", verifyToken, (req, res) => {
 
 // Add a product to the cart
 app.post("/cart", verifyToken, (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const { id, code, name } = req.body;
   db.run(
     "INSERT INTO cart (id, code, name) VALUES (?, ?, ?)",
@@ -183,7 +179,6 @@ app.post("/cart", verifyToken, (req, res) => {
 
 // Get all items in the cart
 app.get("/cart", verifyToken, (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   db.all("SELECT * FROM cart", (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
@@ -195,7 +190,6 @@ app.get("/cart", verifyToken, (req, res) => {
 
 // Get all items in the cart
 app.get("/cart/:code", verifyToken, (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const { code } = req.params;
   db.all("SELECT * FROM cart WHERE code = ?", [code], (err, rows) => {
     if (err) {
@@ -208,7 +202,6 @@ app.get("/cart/:code", verifyToken, (req, res) => {
 
 // Update a cart
 app.put("/cart/:id", verifyToken, (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const { name } = req.body;
   const id = req.params.id;
   db.run("UPDATE cart SET name = ? WHERE id = ?", [name, id], function (err) {
@@ -225,7 +218,6 @@ app.put("/cart/:id", verifyToken, (req, res) => {
 
 // Delete a cart
 app.delete("/cart/:id", verifyToken, (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const id = req.params.id;
   db.run("DELETE FROM cart WHERE id = ?", [id], function (err) {
     if (err) {
@@ -243,7 +235,6 @@ app.delete("/cart/:id", verifyToken, (req, res) => {
 
 // Get all billing entries
 app.get("/billing", (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   db.all("SELECT * FROM billing", (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
@@ -255,7 +246,6 @@ app.get("/billing", (req, res) => {
 
 // Get billing details joined with product and cart
 app.get("/billing/:id", (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const cart_id = req.params.id;
   db.all(
     `
@@ -282,7 +272,6 @@ app.get("/billing/:id", (req, res) => {
 
 // Add a new billing entry
 app.post("/billing", async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const { code, cart_id, is_current, product_code } = req.body;
   let { quantity, product_id } = req.body;
   if (product_code) {
@@ -419,7 +408,6 @@ const getProductIdByCode = async (req) => {
 
 // Update a billing entry
 app.put("/billing/:id", async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const { code, cart_id, product_id, quantity } = req.body;
   await db.run(
     "UPDATE billing SET quantity = ? WHERE code = ? AND cart_id = ? AND product_id = ? AND is_current = 1",
@@ -443,7 +431,6 @@ app.put("/billing/:id", async (req, res) => {
 
 // Delete a billing entry
 app.delete("/billing/:id", async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const id = req.params.id;
   db.run(
     "UPDATE billing SET is_current = 0 WHERE id = ?",
@@ -471,7 +458,6 @@ app.delete("/billing/:id", async (req, res) => {
 
 // Complete payment request
 app.patch("/billing/:code", (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const code = req.params.code;
   db.run(
     "UPDATE billing SET is_current = 0 WHERE code = ?",
@@ -519,7 +505,6 @@ client.on("connect", () => {
 });
 
 app.post("/billing-total", async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
   const cart_id = req.body.cart_id;
 
   const { billingDetails, cart_code, totalPayment } = await getCartTotal(
@@ -691,15 +676,19 @@ app.patch("/users/:id", (req, res) => {
       return res.status(500).json({ error: err.message });
     }
 
-    db.run("UPDATE user SET password = ? WHERE id = ?", [hash, id], function (err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
+    db.run(
+      "UPDATE user SET password = ? WHERE id = ?",
+      [hash, id],
+      function (err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        if (this.changes === 0) {
+          return res.status(404).json({ message: "User not found" });
+        }
+        res.json({ message: "Password changed successfully" });
       }
-      if (this.changes === 0) {
-        return res.status(404).json({ message: "User not found" });
-      }
-      res.json({ message: "Password changed successfully" });
-    });
+    );
   });
 });
 
