@@ -1,5 +1,5 @@
 // const express = require("express");
-import express from 'express';
+import express from "express";
 // const bodyParser = require("body-parser");
 import bodyParser from "body-parser";
 // const sqlite3 = require("sqlite3").verbose();
@@ -9,6 +9,8 @@ import cors from "cors";
 
 import mqtt from "mqtt";
 
+import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 
 const app = express();
 const PORT = 3000;
@@ -53,12 +55,48 @@ db.run(`
     cart_id INTEGER,
     product_id INTEGER,
     quantity INTEGER,
-    is_current TINYINT
+    is_current TINYINT,
+    member_id INTEGER
   )
 `);
 
+// Create user table
+db.run(`
+  CREATE TABLE IF NOT EXISTS user (
+    id INTEGER PRIMARY KEY,
+    email TEXT,
+    role TEXT,
+    password TEXT,
+    avatar_url TEXT
+  )
+`);
+
+// Create member table
+db.run(`
+  CREATE TABLE IF NOT EXISTS member (
+    id INTEGER PRIMARY KEY,
+    code TEXT,
+    point INTEGER
+  )
+`);
+
+const verifyToken = (req, res, next) => {
+  const token = req.headers["authorization"];
+  if (!token) {
+    return res.status(403).json({ message: "Token is required" });
+  }
+  const _token = token.split(" ")[1];
+  jwt.verify(_token, secretKey, (err, decoded) => {
+    if (err) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    req.userId = decoded.userId;
+    next();
+  });
+};
+
 // Get all products
-app.get("/products", (req, res) => {
+app.get("/products", verifyToken, (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   db.all("SELECT * FROM products", (err, rows) => {
     if (err) {
@@ -70,7 +108,7 @@ app.get("/products", (req, res) => {
 });
 
 // Add a new product
-app.post("/products", (req, res) => {
+app.post("/products", verifyToken, (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   const { code, name, category, quantity, price } = req.body;
   db.run(
@@ -87,7 +125,7 @@ app.post("/products", (req, res) => {
 });
 
 // Update a product
-app.put("/products/:id", (req, res) => {
+app.put("/products/:id", verifyToken, (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   const { code, name, category, quantity, price } = req.body;
   const id = req.params.id;
@@ -108,7 +146,7 @@ app.put("/products/:id", (req, res) => {
 });
 
 // Delete a product
-app.delete("/products/:id", (req, res) => {
+app.delete("/products/:id", verifyToken, (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   const id = req.params.id;
   db.run("DELETE FROM products WHERE id = ?", [id], function (err) {
@@ -124,7 +162,7 @@ app.delete("/products/:id", (req, res) => {
 });
 
 // Add a product to the cart
-app.post("/cart", (req, res) => {
+app.post("/cart", verifyToken, (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   const { id, code, name } = req.body;
   db.run(
@@ -144,7 +182,7 @@ app.post("/cart", (req, res) => {
 });
 
 // Get all items in the cart
-app.get("/cart", (req, res) => {
+app.get("/cart", verifyToken, (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   db.all("SELECT * FROM cart", (err, rows) => {
     if (err) {
@@ -156,7 +194,7 @@ app.get("/cart", (req, res) => {
 });
 
 // Get all items in the cart
-app.get("/cart/:code", (req, res) => {
+app.get("/cart/:code", verifyToken, (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   const { code } = req.params;
   db.all("SELECT * FROM cart WHERE code = ?", [code], (err, rows) => {
@@ -169,7 +207,7 @@ app.get("/cart/:code", (req, res) => {
 });
 
 // Update a cart
-app.put("/cart/:id", (req, res) => {
+app.put("/cart/:id", verifyToken, (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   const { name } = req.body;
   const id = req.params.id;
@@ -186,7 +224,7 @@ app.put("/cart/:id", (req, res) => {
 });
 
 // Delete a cart
-app.delete("/cart/:id", (req, res) => {
+app.delete("/cart/:id", verifyToken, (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   const id = req.params.id;
   db.run("DELETE FROM cart WHERE id = ?", [id], function (err) {
@@ -407,19 +445,26 @@ app.put("/billing/:id", async (req, res) => {
 app.delete("/billing/:id", async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   const id = req.params.id;
-  db.run("UPDATE billing SET is_current = 0 WHERE id = ?", [id], async function (err) {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
+  db.run(
+    "UPDATE billing SET is_current = 0 WHERE id = ?",
+    [id],
+    async function (err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+
+      res.json({
+        message: "Billing entry deleted successfully",
+        changes: this.changes,
+      });
     }
+  );
 
-    res.json({
-      message: "Billing entry deleted successfully",
-      changes: this.changes,
-    });
-  });
-
-  const { billingDetails, cart_code, totalPayment } = await getBillTotal(id, true);
+  const { billingDetails, cart_code, totalPayment } = await getBillTotal(
+    id,
+    true
+  );
 
   client.publish(`${cart_code}/total`, `Total payment: ${totalPayment}`);
 });
@@ -481,7 +526,10 @@ app.post("/billing-total", async (req, res) => {
     cart_id
   );
   res.json({ billingDetails, totalPayment });
-  client.publish(`${cart_code}/total`, `Your purchase has been successful - Total payment: ${totalPayment}`);
+  client.publish(
+    `${cart_code}/total`,
+    `Your purchase has been successful - Total payment: ${totalPayment}`
+  );
 });
 
 const getCartTotal = async (cart_id) => {
@@ -531,7 +579,7 @@ const getBillTotal = async (billing_code, getBillingCode = false) => {
             return;
           }
         );
-      })
+      });
     })();
   }
   return new Promise((resolve, reject) => {
@@ -560,6 +608,165 @@ const getBillTotal = async (billing_code, getBillingCode = false) => {
     );
   });
 };
+
+/**
+ * CRUD user
+ */
+const secretKey = "your_secret_key"; // Change this with your actual secret key
+const saltRounds = 10;
+
+// Create a new user
+app.post("/users", (req, res) => {
+  const { email, role, password, avatar_url } = req.body;
+  db.run(
+    "INSERT INTO user (email, role, password, avatar_url) VALUES (?, ?, ?, ?)",
+    [email, role, password, avatar_url],
+    function (err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({
+        id: this.lastID,
+        email,
+        role,
+        password,
+        avatar_url,
+      });
+    }
+  );
+});
+
+// Get all users
+app.get("/users", (req, res) => {
+  db.all("SELECT * FROM user", (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.json({ users: rows });
+  });
+});
+
+// Get user by ID
+app.get("/users/:id", (req, res) => {
+  const id = req.params.id;
+  db.get("SELECT * FROM user WHERE id = ?", [id], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    if (!row) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json({ user: row });
+  });
+});
+
+// Update user by ID
+app.put("/users/:id", (req, res) => {
+  const id = req.params.id;
+  const { email, role, avatar_url } = req.body;
+  db.run(
+    "UPDATE user SET email = ?, role = ?, avatar_url = ? WHERE id = ?",
+    [email, role, avatar_url, id],
+    function (err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json({
+        message: "User updated successfully",
+        changes: this.changes,
+      });
+    }
+  );
+});
+
+// Update password user by ID
+app.patch("/users/:id", (req, res) => {
+  const id = req.params.id;
+  const { password } = req.body;
+  bcrypt.hash(password, saltRounds, (err, hash) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    db.run("UPDATE user SET password = ? WHERE id = ?", [hash, id], function (err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json({ message: "Password changed successfully" });
+    });
+  });
+});
+
+// Delete user by ID
+app.delete("/users/:id", (req, res) => {
+  const id = req.params.id;
+  db.run("DELETE FROM user WHERE id = ?", id, function (err) {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json({ message: "User deleted successfully" });
+  });
+});
+
+// Register a new user
+app.post("/register", (req, res) => {
+  const { email, role, password, avatar_url } = req.body;
+  bcrypt.hash(password, saltRounds, (err, hash) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    db.run(
+      "INSERT INTO user (email, role, password, avatar_url) VALUES (?, ?, ?, ?)",
+      [email, role, hash, avatar_url],
+      function (err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        res.json({
+          id: this.lastID,
+          email,
+          role,
+          avatar_url,
+        });
+      }
+    );
+  });
+});
+
+// Login
+app.post("/login", (req, res) => {
+  const { email, password } = req.body;
+  db.get("SELECT * FROM user WHERE email = ?", [email], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    if (!row) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+    bcrypt.compare(password, row.password, (err, result) => {
+      if (err || !result) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+      const token = jwt.sign({ id: row.id, email: row.email }, secretKey);
+      res.json({ message: "Login successful", token });
+    });
+  });
+});
+
+// Logout
+app.get("/logout", verifyToken, (req, res) => {
+  // Here you can implement logout logic if needed
+  res.json({ message: "Logout successful" });
+});
 
 app.use(cors()); // Add this line
 app.use(bodyParser.json());
