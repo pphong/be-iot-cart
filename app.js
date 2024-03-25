@@ -763,7 +763,7 @@ app.get("/logout", verifyToken, (req, res) => {
  */
 
 // Create a member
-app.post("/members", (req, res) => {
+app.post("/members", verifyToken, (req, res) => {
   const { member, code, point } = req.body;
   db.run(
     "INSERT INTO member (member, code, point) VALUES (?, ?, ?)",
@@ -788,7 +788,7 @@ app.get("/members", (req, res) => {
 });
 
 // Update a member
-app.put("/members/:id", (req, res) => {
+app.put("/members/:id", verifyToken, (req, res) => {
   const { member, code, point } = req.body;
   const id = req.params.id;
   db.run(
@@ -804,7 +804,7 @@ app.put("/members/:id", (req, res) => {
 });
 
 // Delete a member
-app.delete("/members/:id", (req, res) => {
+app.delete("/members/:id", verifyToken, (req, res) => {
   const id = req.params.id;
   db.run("DELETE FROM member WHERE id = ?", id, function (err) {
     if (err) {
