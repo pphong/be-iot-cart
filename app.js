@@ -19,7 +19,7 @@ app.use(cors()); // Add this line
 app.use(bodyParser.json());
 
 // Connect to SQLite database
-const db = new sqlite3.Database("./database.db", (err) => {
+const db = new sqlite3.Database("./database.sqlite", (err) => {
   if (err) {
     console.error(err.message);
   } else {
@@ -76,6 +76,7 @@ db.run(`
 db.run(`
   CREATE TABLE IF NOT EXISTS member (
     id INTEGER PRIMARY KEY,
+    member TEXT,
     code TEXT,
     point INTEGER
   )
@@ -755,6 +756,62 @@ app.post("/login", (req, res) => {
 app.get("/logout", verifyToken, (req, res) => {
   // Here you can implement logout logic if needed
   res.json({ message: "Logout successful" });
+});
+
+/**
+ * Member
+ */
+
+// Create a member
+app.post("/members", (req, res) => {
+  const { member, code, point } = req.body;
+  db.run(
+    "INSERT INTO member (member, code, point) VALUES (?, ?, ?)",
+    [member, code, point],
+    function (err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ id: this.lastID });
+    }
+  );
+});
+
+// Get all members
+app.get("/members", (req, res) => {
+  db.all("SELECT * FROM member", (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.json({ members: rows });
+  });
+});
+
+// Update a member
+app.put("/members/:id", (req, res) => {
+  const { member, code, point } = req.body;
+  const id = req.params.id;
+  db.run(
+    "UPDATE member SET member = ?, code = ?, point = ? WHERE id = ?",
+    [member, code, point, id],
+    function (err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ changes: this.changes });
+    }
+  );
+});
+
+// Delete a member
+app.delete("/members/:id", (req, res) => {
+  const id = req.params.id;
+  db.run("DELETE FROM member WHERE id = ?", id, function (err) {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.json({ changes: this.changes });
+  });
 });
 
 app.use(cors()); // Add this line
